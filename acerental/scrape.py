@@ -26,8 +26,8 @@ app = Flask(__name__)
 
 def parseCarsParallel(ace):
         try:
-            cars = WebDriverWait(ace.browser, MAX_TIMEOUT).until(lambda x: x.find_element_by_class_name("l-cars__cards"))
             parsedCars = []
+            cars = WebDriverWait(ace.browser, MAX_TIMEOUT).until(lambda x: x.find_element_by_class_name("l-cars__cards"))
             cars = cars.find_elements_by_class_name("c-vehicle-card")
             totalCars = len(cars)
             req = ace.request
@@ -105,7 +105,7 @@ def parseCarDetailParallel(browser, parsedCar):
 class ACE():
     def __init__(self):
         options = ChromeOptions()
-        #options.add_argument("--headless")
+        options.add_argument("--headless")
         options.add_argument('--disable-logging')
         options.add_argument("--start-maximized")
         options.add_argument("--no-sandbox")
@@ -269,16 +269,12 @@ def search():
     req = request.get_json()
     ace = ACE()
     ace.search(req)
-    parsed = ace.parseCars(ace)
-    return jsonify({"parsed": parsed})
-
-@app.route("/parallelSearch", methods={'POST'})
-def searchParallel():
-    req = request.get_json()
-    ace = ACE()
-    ace.request = req
-    ace.search(req)
-    parsed = parseCarsParallel(ace)
+    if request.args.get("parallel") == "true":
+        print("In parallel")
+        ace.request = req
+        parsed = parseCarsParallel(ace)
+    else:
+        parsed = ace.parseCars(ace)
     return jsonify({"parsed": parsed})
 
 
