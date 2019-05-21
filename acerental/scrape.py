@@ -15,14 +15,97 @@ from flask import Flask, jsonify
 import datetime
 import re
 from flask import request
+from multiprocessing import Pool
+import copy
+from itertools import repeat
+
 MAX_TIMEOUT = 10
 ACE_URL = 'https://www.acerentalcars.co.nz/'
 app = Flask(__name__)
 
+
+def parseCarsParallel(ace):
+        try:
+            cars = WebDriverWait(ace.browser, MAX_TIMEOUT).until(lambda x: x.find_element_by_class_name("l-cars__cards"))
+            parsedCars = []
+            cars = cars.find_elements_by_class_name("c-vehicle-card")
+            totalCars = len(cars)
+            req = ace.request
+            with Pool() as pool:
+                parsedCars = pool.starmap(parseParallelHelper, zip(range(1, totalCars), repeat(req)))
+            return parsedCars
+        except TimeoutException:
+            print("Am i here in time out exception??")
+            return parsedCars
+
+def parseParallelHelper(index, request):
+        ace = ACE()
+        ace.search(request)
+        WebDriverWait(ace.browser, MAX_TIMEOUT).until(lambda x: x.find_element_by_class_name("l-cars__cards"))
+        parsedCar = {
+                    "carName": "",
+                    "carType": "",
+                    "gearType": "",
+                    "maxSeats": "",
+                    "maxLuggage": "",
+                    "image": "",
+                    "carCost": "",
+                    "totalCost": "",
+                    "currencyCode": "",
+                    "insuranceDetails": [],
+                    "otherOptions": []
+                }
+        itemSummary = ace.browser.find_element_by_class_name("l-booking-summary-bar")
+        ace.browser.execute_script("arguments[0].style.visibility='hidden'", itemSummary)
+        action = ActionChains(ace.browser)
+        detailsButton = ace.browser.find_elements_by_class_name("c-vehicle-card")[index].find_element_by_class_name("c-vehicle-card__action")
+        action.move_to_element(detailsButton)
+        action.click(detailsButton).perform()
+        WebDriverWait(ace.browser, MAX_TIMEOUT).until(lambda x: x.find_element_by_class_name("l-booking__step"))
+        parsedCar = parseCarDetailParallel(ace.browser, parsedCar)
+        return parsedCar
+
+def parseCarDetailParallel(browser, parsedCar):
+        elements = browser.find_elements_by_class_name("l-booking__step")
+        inner = browser.find_element_by_class_name("l-vehicle-panel__inner")
+        insuranceDetails = elements[0].find_elements_by_class_name("c-option-card__main")
+        otherOptions = elements[1].find_elements_by_class_name("x-option-card__main")
+        parsedCar["carName"] = inner.find_element_by_class_name("l-vehicle-panel__subtitle").get_attribute("textContent")
+        parsedCar["carType"] = inner.find_element_by_class_name("l-vehicle-panel__title").get_attribute("textContent")
+        parsedCar["image"] = inner.find_element_by_class_name("l-vehicle-panel__image").find_element_by_xpath('./img').get_attribute("src")
+        
+
+        specifications = inner.find_element_by_class_name("l-vehicle-panel__specifications")
+        parsedCar["gearType"] = specifications.find_element_by_xpath('//img[contains(@src, "transmission")]').get_attribute("alt")
+        parsedCar["maxSeats"] = specifications.find_element_by_xpath('//img[contains(@src, "passengers")]').get_attribute("alt")
+        parsedCar["maxLuggage"] = specifications.find_element_by_xpath('//img[contains(@src, "luggage")]').get_attribute("alt")
+
+        cost = WebDriverWait(browser, MAX_TIMEOUT).until(lambda x: x.find_element_by_class_name("l-vehicle-panel__total"))
+        parsedCar["carCost"] = cost.find_element_by_class_name("l-vehicle-panel__total-item-total").get_attribute("textContent")
+        totalcost = cost.find_element_by_class_name("l-vehicle-panel__total-price")
+        parsedCar["currencyCode"] = totalcost.find_element_by_xpath('./span').get_attribute("textContent")
+        parsedCar["totalCost"] = totalcost.get_attribute("textContent")
+        for _ins in insuranceDetails:
+            insur = {
+                "name": _ins.find_element_by_class_name("c-option-card__title").get_attribute("textContent"),
+                "price": _ins.find_element_by_class_name("c-option-card__price").get_attribute("textContent")
+            }
+            parsedCar["insuranceDetails"].append(insur)
+
+        for _opt in otherOptions:
+            opt = {
+                "title": _opt.find_element_by_class_name("x-option-card__title").get_attribute("textContent"),
+                "price": _opt.find_element_by_class_name("x-option-card__price").get_attribute("textContent")
+            }
+            parsedCar["otherOptions"].append(opt)
+
+        return parsedCar
+
+
 class ACE():
     def __init__(self):
         options = ChromeOptions()
-        options.add_argument("--headless")
+        #options.add_argument("--headless")
         options.add_argument('--disable-logging')
         options.add_argument("--start-maximized")
         options.add_argument("--no-sandbox")
@@ -30,6 +113,7 @@ class ACE():
         self.browser.get(ACE_URL)
         self.searchResults = []
         self.dropDownOptions = []
+        self.request = {}
         time.sleep(2)
         self.getDropDownOptions()    
     
@@ -96,8 +180,8 @@ class ACE():
     
     def parseCars(self, ace):
         try:
-            cars = WebDriverWait(ace.browser, MAX_TIMEOUT).until(lambda x: x.find_element_by_class_name("l-cars__cards"))
             parsedCars = []
+            cars = WebDriverWait(self.browser, MAX_TIMEOUT).until(lambda x: x.find_element_by_class_name("l-cars__cards"))
             cars = cars.find_elements_by_class_name("c-vehicle-card")
             totalCars = len(cars)
             for i in range(0,totalCars):
@@ -130,8 +214,7 @@ class ACE():
         except TimeoutException:
             print("Am i here in time out exception??")
             return parsedCars
-        
-    
+
     def parseCarDetail(self, carDetail, parsedCar):
         elements = self.browser.find_elements_by_class_name("l-booking__step")
         inner = carDetail.find_element_by_class_name("l-vehicle-panel__inner")
@@ -168,6 +251,7 @@ class ACE():
 
         return parsedCar
 
+
         
         
 
@@ -186,6 +270,15 @@ def search():
     ace = ACE()
     ace.search(req)
     parsed = ace.parseCars(ace)
+    return jsonify({"parsed": parsed})
+
+@app.route("/parallelSearch", methods={'POST'})
+def searchParallel():
+    req = request.get_json()
+    ace = ACE()
+    ace.request = req
+    ace.search(req)
+    parsed = parseCarsParallel(ace)
     return jsonify({"parsed": parsed})
 
 
