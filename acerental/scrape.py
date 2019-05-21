@@ -96,8 +96,8 @@ class ACE():
     
     def parseCars(self, ace):
         try:
-            cars = WebDriverWait(ace.browser, MAX_TIMEOUT).until(lambda x: x.find_element_by_class_name("l-cars__cards"))
             parsedCars = []
+            cars = WebDriverWait(ace.browser, MAX_TIMEOUT).until(lambda x: x.find_element_by_class_name("l-cars__cards"))
             cars = cars.find_elements_by_class_name("c-vehicle-card")
             totalCars = len(cars)
             for i in range(0,totalCars):
